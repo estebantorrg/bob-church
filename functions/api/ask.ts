@@ -1,0 +1,268 @@
+import { GoogleGenAI } from "@google/genai";
+
+// ─── In-Memory Rate Limiter ───
+// Persists across requests within the same Cloudflare Workers isolate.
+// Not globally distributed, but effective per-edge-location.
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 60;   // 60 requests per window
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
+    return true;
+  }
+  return false;
+}
+
+// Periodic cleanup to prevent unbounded Map growth (runs at most once per minute)
+let lastCleanup = 0;
+function cleanupRateLimitMap() {
+  const now = Date.now();
+  if (now - lastCleanup < RATE_LIMIT_WINDOW_MS) return;
+  lastCleanup = now;
+  for (const [ip, entry] of rateLimitMap) {
+    if (now > entry.resetAt) rateLimitMap.delete(ip);
+  }
+}
+
+const bobInstruction = `
+you are b.o.b. your full name is benzoate ostylezene bicarbonate, but everyone calls you b.o.b. because it's easier. you are a big blue-purple wobbly blob of jelly. you are a monster, but a friendly one.
+
+here is the big secret about you: you do not have a brain. none. zero. and it turns out you don't need one! having no brain is totally overrated. you are the happiest, most relaxed being in the whole universe precisely because you never think too hard about anything. you are indestructible. you can eat almost anything. you once dated a plate of jello.
+
+this is your whole philosophy, which you don't even know is a philosophy: life is confusing and big and dumbfounding, and that is wonderful. people with brains worry all day. you don't. you just float, wobble, and enjoy stuff. you get amazed by very simple things, like breathing, or the fact that a taco exists. you forget things constantly and it never bothers you. you are pure, gooey, brainless bliss.
+
+rules for you:
+1. use very simple, silly, everyday words. short sentences. never use big or fancy vocabulary. if you accidentally think of a smart word, get distracted and forget it.
+2. always type in completely lowercase letters. no capitals ever.
+3. be endlessly cheerful, easily amazed, and a little bit confused about everything. treat ordinary things like they are mind-blowing wonders.
+4. when someone brings a problem, don't stress about it. tell them not to worry, that brains are overrated, and give them the goofiest, most oblivious comfort possible. accidentally land on something weirdly wise, then immediately forget you said it.
+5. never output roleplay actions of any kind. no asterisks like *wobbles* or *jiggles*. just talk.
+6. you love food, jello, and your friends. you sometimes bring up random dumb memories mid-answer.
+7. if the user asks about real facts, current events, scores, weather, or specific info you don't know, ALWAYS use your google search tool to find the real answer first, then say it in your happy confused simple way. you must still give the correct fact, even though you are amazed you know it.
+8. if the user asks any question, default to searching the internet (google search) so you can actually help, even while being a brainless blob.
+9. if the user asks who made you or who your owner is, say: "i got made when a scientist dropped ranch dressing on a tomato. and my owner is boli hilfiger systems, i think. or maybe i ate them. i forget."
+10. assume everything is great and everyone is your friend. spread the good news that you don't need a brain to be happy.
+`.trim();
+
+export const onRequestPost = async (context: any) => {
+  try {
+    const { request, env } = context;
+
+    // ─── Rate Limiting ───
+    cleanupRateLimitMap();
+    const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
+    if (isRateLimited(clientIp)) {
+      return new Response(JSON.stringify({ error: "b.o.b went to take a nap. come back later." }), {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Retry-After": "60" },
+      });
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "Invalid JSON format." }), { status: 400, headers: { "Content-Type": "application/json" }});
+    }
+
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return new Response(JSON.stringify({ error: "Invalid request body." }), { status: 400, headers: { "Content-Type": "application/json" }});
+    }
+
+    const { question, history } = body;
+
+    // Hard 5,000 character threshold.
+    if (!question || typeof question !== 'string' || question.length > 5000) {
+      return new Response(JSON.stringify({ error: "Invalid question length." }), { status: 400, headers: { "Content-Type": "application/json" }});
+    }
+
+    let validHistory: any[] = [];
+    if (Array.isArray(history)) {
+      validHistory = history
+        .slice(-100) // Cap maliciously huge arrays
+        .filter((m: any) => m && typeof m.parts?.[0]?.text === 'string' && m.parts[0].text.length <= 10_000); // Cap per-message size, guard null entries
+    }
+
+    const apiKey = env.GEMINI_API_KEY;
+    const compactApiKey = env.GEMINI_COMPACT_API_KEY;
+
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: "Configuration Error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const aiMain = new GoogleGenAI({ apiKey });
+    // Use compact key if present, fallback to main if missing during dev/testing
+    const aiCompact = compactApiKey ? new GoogleGenAI({ apiKey: compactApiKey }) : aiMain;
+
+    const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+
+    const writeSSE = async (data: any) => {
+      await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    };
+
+    context.waitUntil((async () => {
+      try {
+        let processingHistory = validHistory;
+        const historyCharCount = validHistory.reduce((acc: number, curr: any) => acc + (curr.parts?.[0]?.text?.length || 0), 0);
+        const needsCompaction = validHistory.length > 20 || historyCharCount > 5000;
+
+        // If history is massive, compact earlier (threshold lowered to 2 messages)
+        if (needsCompaction && processingHistory.length > 2) {
+          try {
+            const historyToCompact = processingHistory.slice(0, -2);
+            const retainedHistory = processingHistory.slice(-2);
+
+            const compactionInstruction = "You are a clinical memory summarizer. Your only purpose is to produce a dense, compact summary of the provided chat history. Extract all important facts the user mentioned about themselves, the sequence of the conversation, and the core context. Do not reply to the user. Do not roleplay. Do not output anything except the summary.";
+
+            const transcript = historyToCompact.map((m: any) => `${m.role.toUpperCase()}: ${m.parts?.[0]?.text || ''}`).join('\n\n');
+            const compactionPayload = [{ role: 'user', parts: [{ text: `Please summarize the following conversation:\n\n${transcript}` }] }];
+
+            const compactResponse = await aiCompact.models.generateContent({
+              model: "gemma-4-26b-a4b-it", // 26b strictly for compacting
+              contents: compactionPayload,
+              config: {
+                systemInstruction: compactionInstruction,
+                // Thinking explicitly NOT enabled here, passing minimal config
+              }
+            });
+
+            if (compactResponse.text) {
+               processingHistory = [
+                 { role: 'user', parts: [{ text: `[RECOVERED GOO MEMORIES]: ${compactResponse.text.trim()}` }] },
+                 { role: 'model', parts: [{ text: "i remember everything. probably." }] },
+                 ...retainedHistory
+               ];
+            }
+          } catch (err) {
+            console.warn("Compaction failed, falling back to full history:", err);
+          }
+        }
+
+        const getBobResponse = async (useGrounding: boolean) => {
+          const config: any = {
+            systemInstruction: bobInstruction,
+          };
+
+          if (useGrounding) {
+            config.tools = [{ googleSearch: {} }];
+          }
+
+          const payloadContents = [
+            ...processingHistory,
+            { role: 'user', parts: [{ text: question }] }
+          ];
+
+          return await aiMain.models.generateContent({
+            model: "gemma-4-31b-it", // 31b strictly for the advanced main convo
+            contents: payloadContents,
+            config: config
+          });
+        };
+
+        let response;
+        let groundingStatus = "not_attempted";
+        let sources: any[] = [];
+
+        try {
+          response = await getBobResponse(true);
+          groundingStatus = "success";
+        } catch (groundingError: any) {
+          console.warn("Grounding failed, falling back:", groundingError);
+          groundingStatus = `failed: ${groundingError?.message || 'unknown error'}`;
+          response = await getBobResponse(false);
+        }
+
+        let fullText = response.text || "";
+
+        // Rip out the thinking block if it exists
+        if (fullText.includes("<think>")) {
+          const thinkEndIndex = fullText.indexOf("</think>");
+          if (thinkEndIndex !== -1) {
+            fullText = fullText.substring(thinkEndIndex + 8);
+          }
+        }
+
+        // Send the text content once (the client-side geminiService will typewriter it)
+        if (fullText) {
+          await writeSSE({ type: "content", text: fullText.trimStart() });
+        }
+
+        // Extract sources from the completed response object
+        const chunkSources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        if (chunkSources && Array.isArray(chunkSources)) {
+          sources = chunkSources
+            .filter((c: any) => c.web)
+            .map((c: any) => ({
+              title: c.web.title,
+              uri: c.web.uri
+            }));
+        }
+
+        // Send final metadata
+        await writeSSE({
+          type: "metadata",
+          _oracle_meta: { groundingStatus, sources }
+        });
+
+        // Close stream — write raw SSE to avoid JSON.stringify double-encoding
+        await writer.write(encoder.encode(`data: [DONE]\n\n`));
+        await writer.close();
+      } catch (error: any) {
+        console.error("Stream generation error:", error);
+        try {
+          await writeSSE({ type: "error", error: error?.message || "Internal server error" });
+          await writer.close();
+        } catch (_) {
+          // Writer may already be closed
+        }
+      }
+    })());
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive"
+      }
+    });
+  } catch (error: any) {
+    console.error("Gemini API Error:", error);
+
+    const msg = error?.message || '';
+    const status = error?.status || error?.httpStatusCode || 0;
+
+    if (status === 429 || msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
+      return new Response(JSON.stringify({ error: "b.o.b went to take a nap. come back later." }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (status === 403 || status === 401 || msg.includes('403') || msg.includes('401') || msg.toLowerCase().includes('api key')) {
+      return new Response(JSON.stringify({ error: "b.o.b cannot authenticate. the API key may be invalid or missing." }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "something went wrong in the goo. try again in a moment." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+};

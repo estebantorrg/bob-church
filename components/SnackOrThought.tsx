@@ -1,0 +1,445 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+interface LeaderboardEntry {
+  name: string;
+  score: number;
+}
+
+const WORD_BANK = [
+  // Snacks / goo joy (Correct Swipe Right)
+  { word: "Jello", isSnack: true },
+  { word: "Tacos", isSnack: true },
+  { word: "Cake and Balloons", isSnack: true },
+  { word: "Wobbling", isSnack: true },
+  { word: "Breathing", isSnack: true },
+  { word: "Floating", isSnack: true },
+  { word: "Pineapple Chunks", isSnack: true },
+  { word: "Ranch Dressing", isSnack: true },
+  { word: "Naps", isSnack: true },
+  { word: "Staring at Nothing", isSnack: true },
+
+  // Thoughts (Correct Swipe Left)
+  { word: "Taxes", isSnack: false },
+  { word: "Algorithms", isSnack: false },
+  { word: "Existential Dread", isSnack: false },
+  { word: "Quantum Physics", isSnack: false },
+  { word: "Mortgages", isSnack: false },
+  { word: "Philosophy", isSnack: false },
+  { word: "Calculus", isSnack: false },
+  { word: "Carrots", isSnack: false },
+  { word: "Self-Awareness", isSnack: false },
+  { word: "Regret", isSnack: false },
+  { word: "Syllogisms", isSnack: false },
+  { word: "Having a Brain", isSnack: false },
+];
+
+export const SnackOrThought: React.FC = () => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [gameOver, setGameOver] = useState(false);
+  const [score, setScore] = useState(0);
+  const [currentWord, setCurrentWord] = useState<{ word: string, isSnack: boolean } | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [maxTime, setMaxTime] = useState<number>(2000);
+
+  // Physics States
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+  const [swipeAnim, setSwipeAnim] = useState<'left' | 'right' | null>(null);
+  const isAnimating = useRef(false);
+
+  // Leaderboard states
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [playerName, setPlayerName] = useState("");
+  const [isSubmittingScore, setIsSubmittingScore] = useState(false);
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [gameSessionId, setGameSessionId] = useState<string | null>(null);
+  const [gameOverReason, setGameOverReason] = useState<'timeout' | 'wrong' | null>(null);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isPlaying || gameOver || isAnimating.current) return;
+      if (e.key === 'ArrowLeft') {
+        handleSwipeOut('thought');
+      } else if (e.key === 'ArrowRight') {
+        handleSwipeOut('snack');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlaying, gameOver, currentWord]);
+
+  // Fetch Leaderboard
+  const fetchLeaderboard = async () => {
+    try {
+      const res = await fetch('/api/leaderboard?game=burden');
+      if (res.ok) {
+        const data = await res.json();
+        setLeaderboard(data);
+      }
+    } catch (e) {
+      console.error("Failed to load leaderboard");
+    }
+  };
+
+  useEffect(() => {
+    if (!isPlaying || gameOver) {
+      fetchLeaderboard();
+    }
+  }, [isPlaying, gameOver]);
+
+  // Game Loop (Timer)
+  useEffect(() => {
+    if (!isPlaying || gameOver || !currentWord || isAnimating.current) return;
+
+    const interval = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 50) {
+          clearInterval(interval);
+          setGameOverReason('timeout');
+          setGameOver(true);
+          setIsPlaying(false);
+          return 0;
+        }
+        return prev - 50;
+      });
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, gameOver, currentWord]);
+
+  const startGame = async () => {
+    setScore(0);
+    setGameOver(false);
+    setGameOverReason(null);
+    setIsPlaying(true);
+    setScoreSubmitted(false);
+    setSwipeAnim(null);
+    setDragPos({ x: 0, y: 0 });
+    pickNextWord(0);
+
+    try {
+      const res = await fetch('/api/game-session', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setGameSessionId(data.sessionId);
+      }
+    } catch (e) {
+      console.warn('Failed to get game session');
+    }
+  };
+
+  const pickNextWord = (currentScore: number) => {
+    const nextMaxTime = Math.max(1200, 3500 * Math.pow(0.97, currentScore));
+    setMaxTime(nextMaxTime);
+    setTimeLeft(nextMaxTime);
+
+    // Pick random unequal to current
+    let nextWord;
+    do {
+      nextWord = WORD_BANK[Math.floor(Math.random() * WORD_BANK.length)];
+    } while (currentWord && nextWord.word === currentWord.word);
+
+    setCurrentWord(nextWord);
+  };
+
+  const handleSwipeOut = (choice: 'thought' | 'snack') => {
+    if (isAnimating.current || !currentWord) return;
+    isAnimating.current = true;
+
+    // Visual swipe animation direction
+    setSwipeAnim(choice === 'snack' ? 'right' : 'left');
+
+    const isCorrect = (choice === 'snack' && currentWord.isSnack) ||
+      (choice === 'thought' && !currentWord.isSnack);
+
+    setTimeout(() => {
+      if (isCorrect) {
+        const nextScore = score + 1;
+        setScore(nextScore);
+        pickNextWord(nextScore);
+        setSwipeAnim(null);
+        setDragPos({ x: 0, y: 0 });
+      } else {
+        setGameOverReason('wrong');
+        setGameOver(true);
+        setIsPlaying(false);
+        setSwipeAnim(null);
+        setDragPos({ x: 0, y: 0 });
+      }
+      isAnimating.current = false;
+    }, 250); // wait for swipe animation to finish
+  };
+
+  // Pointer Events for native physical swiping
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!isPlaying || isAnimating.current) return;
+    setIsDragging(true);
+    setStartPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging || !isPlaying || isAnimating.current) return;
+    setDragPos({
+      x: e.clientX - startPos.x,
+      y: e.clientY - startPos.y
+    });
+  };
+
+  const handlePointerUp = () => {
+    if (!isDragging || !isPlaying || isAnimating.current) return;
+    setIsDragging(false);
+
+    // If dragged far enough right
+    if (dragPos.x > 100) {
+      handleSwipeOut('snack');
+    }
+    // If dragged far enough left
+    else if (dragPos.x < -100) {
+      handleSwipeOut('thought');
+    }
+    // Snap back
+    else {
+      setDragPos({ x: 0, y: 0 });
+    }
+  };
+
+  const submitScore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!playerName.trim() || isSubmittingScore || !gameSessionId) return;
+
+    setIsSubmittingScore(true);
+    try {
+      const res = await fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: playerName, score, sessionId: gameSessionId, game: 'burden' })
+      });
+      if (res.ok) {
+        setScoreSubmitted(true);
+        fetchLeaderboard();
+      } else {
+        const err = await res.json();
+        alert(`Failed to submit: ${err.error}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Network error.");
+    } finally {
+      setIsSubmittingScore(false);
+    }
+  };
+
+  // Calculate dynamic rotation and opacity based on physical drag position
+  const rotation = isDragging ? dragPos.x * 0.05 : 0;
+
+  // Decide transform inline style depending on state
+  let transformStyle = '';
+  let transitionStyle = '';
+
+  if (swipeAnim === 'right') {
+    transformStyle = 'translate3d(100vw, 50px, 0) rotate(20deg)';
+    transitionStyle = 'transform 0.25s ease-out, opacity 0.25s ease-out';
+  } else if (swipeAnim === 'left') {
+    transformStyle = 'translate3d(-100vw, 50px, 0) rotate(-20deg)';
+    transitionStyle = 'transform 0.25s ease-out, opacity 0.25s ease-out';
+  } else if (isDragging) {
+    transformStyle = `translate3d(${dragPos.x}px, ${dragPos.y}px, 0) rotate(${rotation}deg)`;
+    transitionStyle = 'none'; // Instant follow finger
+  } else {
+    transformStyle = 'translate3d(0, 0, 0) rotate(0deg)';
+    transitionStyle = 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'; // spring snap back
+  }
+
+  // Visual cues on the card when dragging
+  const swipeOpacityLeft = isDragging && dragPos.x < 0 ? Math.min(1, Math.abs(dragPos.x) / 100) : 0;
+  const swipeOpacityRight = isDragging && dragPos.x > 0 ? Math.min(1, Math.abs(dragPos.x) / 100) : 0;
+
+  return (
+    <div className="w-full max-w-2xl mx-auto border border-[#6C7AE0]/15 rounded-xl bg-[#0b0b1e]/80 p-6 md:p-10 relative overflow-hidden text-center text-white backdrop-blur-md min-h-[500px] flex flex-col items-center justify-center shadow-2xl">
+
+      {!isPlaying && !gameOver && (
+        <div className="animate-fade-in z-10 w-full flex flex-col items-center justify-center">
+          <h2 className="display-font text-5xl mb-4 text-[#9AA9FF] tracking-widest text-shadow drop-shadow-[0_0_15px_rgba(154,169,255,0.5)]">Snack or Thought</h2>
+          <p className="text-xl mb-8 opacity-80 max-w-md mx-auto italic">B.O.B. sorts the world strictly into delicious <span className="text-[#9AA9FF]">Snacks</span> and scary <span className="text-red-400">Thoughts</span>. Swipe or use arrow keys to sort instantly. Do not hesitate. Do not think.</p>
+          <button
+            onClick={startGame}
+            className="px-10 py-4 bg-white text-black font-bold text-2xl tracking-[0.2em] uppercase rounded-full hover:bg-[#9AA9FF] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)]"
+          >
+            Start Sorting
+          </button>
+
+          <button onClick={() => setShowLeaderboard(!showLeaderboard)} className="mt-8 text-white/50 hover:text-white uppercase tracking-widest text-xs border-b border-white/20 pb-1 transition-colors">
+            {showLeaderboard ? 'Hide Leaderboard' : 'View the Goo Records'}
+          </button>
+        </div>
+      )}
+
+      {showLeaderboard && !isPlaying && !gameOver && (
+        <div className="mt-8 p-6 bg-white/5 border border-white/10 rounded-lg w-full animate-fade-in text-left">
+          <h3 className="text-[#9AA9FF] display-font text-2xl mb-4 text-center">Top Sorters</h3>
+          {leaderboard.length === 0 ? <p className="text-white/50 text-center">No scores yet.</p> : (
+            <div className="space-y-2">
+              {leaderboard.map((entry, idx) => (
+                <div key={idx} className="flex justify-between items-center text-sm bg-white/5 p-2 rounded">
+                  <div className="flex gap-4">
+                    <span className="text-[#9AA9FF] opacity-70 w-4">{idx + 1}.</span>
+                    <span className="font-bold">{entry.name}</span>
+                  </div>
+                  <span className="font-mono text-[#9AA9FF]">{entry.score} pts</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isPlaying && currentWord && (
+        <div className="w-full h-full flex flex-col items-center justify-between animate-fade-in relative z-10 select-none touch-none">
+
+          {/* Header UI */}
+          <div className="w-full flex justify-between items-center px-4 mb-2">
+            <p className="text-white/60 font-bold tracking-widest uppercase text-sm">Things Sorted</p>
+            <p className="text-[#9AA9FF] font-bold text-2xl tracking-widest bg-white/10 px-4 py-1 rounded-full">{score}</p>
+          </div>
+
+          {/* Progress Bar Timer */}
+          <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden mb-6">
+            <div
+              className="h-full bg-gradient-to-r from-red-500 to-[#9AA9FF] transition-all duration-75"
+              style={{ width: `${(timeLeft / maxTime) * 100}%` }}
+            />
+          </div>
+
+          {/* Interactive Tinder Card */}
+          <div className="relative w-full max-w-sm aspect-[3/4] my-2">
+
+            {/* The absolute Card */}
+            <div
+              className="absolute inset-0 bg-gradient-to-br from-[#141633] via-[#0a0a18] to-[#10122e] rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border border-[#6C7AE0]/20 overflow-hidden"
+              style={{
+                transform: transformStyle,
+                transition: transitionStyle,
+              }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+            >
+              {/* Subtle bob watermark */}
+              <div className="absolute inset-0 bg-[url('/bob/bob_main.webp')] bg-center bg-no-repeat bg-contain opacity-[0.05] pointer-events-none scale-75" />
+
+              {/* Decorative corner accents */}
+              <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-[#6C7AE0]/30 rounded-tl-lg pointer-events-none" />
+              <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-[#6C7AE0]/30 rounded-tr-lg pointer-events-none" />
+              <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-[#6C7AE0]/30 rounded-bl-lg pointer-events-none" />
+              <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-[#6C7AE0]/30 rounded-br-lg pointer-events-none" />
+
+              {/* Internal absolute overlays for visual feedback when dragging */}
+              <div
+                className="absolute inset-0 bg-red-900/30 rounded-3xl flex items-start justify-end p-6 pointer-events-none transition-opacity duration-150 z-20"
+                style={{ opacity: swipeOpacityLeft }}
+              >
+                <div className="border-4 border-red-500 text-red-500 font-bold text-4xl uppercase tracking-widest px-4 py-2 rounded-lg -rotate-12 bg-black/50 backdrop-blur-[2px]">
+                  Thought
+                </div>
+              </div>
+
+              <div
+                className="absolute inset-0 bg-[#6C7AE0]/20 rounded-3xl flex items-start justify-start p-6 pointer-events-none transition-opacity duration-150 z-20"
+                style={{ opacity: swipeOpacityRight }}
+              >
+                <div className="border-4 border-[#9AA9FF] text-[#9AA9FF] font-bold text-4xl uppercase tracking-widest px-4 py-2 rounded-lg rotate-12 bg-black/50 backdrop-blur-[2px]">
+                  Snack
+                </div>
+              </div>
+
+              {/* The Word */}
+              <div className="relative z-10 flex items-center justify-center w-full px-6">
+                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-wider text-center leading-tight text-white/90 drop-shadow-[0_0_20px_rgba(154,169,255,0.3)]">
+                  {currentWord.word}
+                </h1>
+              </div>
+
+              {/* Subtle bottom label */}
+              <div className="absolute bottom-8 text-[#9AA9FF]/30 text-[10px] uppercase tracking-[0.4em] font-bold pointer-events-none">
+                Snack or Thought
+              </div>
+            </div>
+
+            {/* Background glowing aura behind card */}
+            <div className="absolute inset-0 -z-10 bg-[#6C7AE0]/5 blur-[80px] pointer-events-none" />
+          </div>
+
+          {/* Tinder Action Buttons */}
+          <div className="flex justify-center gap-8 w-full px-4 mt-8">
+            <button
+              onClick={() => handleSwipeOut('thought')}
+              className="w-20 h-20 rounded-full bg-white flex items-center justify-center text-red-500 shadow-xl hover:scale-110 hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] active:scale-95 transition-all border-2 border-red-500/20 group"
+            >
+              <svg className="w-10 h-10 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <button
+              onClick={() => handleSwipeOut('snack')}
+              className="w-20 h-20 rounded-full bg-white flex items-center justify-center text-[#6C7AE0] shadow-xl hover:scale-110 hover:shadow-[0_0_30px_rgba(108,122,224,0.5)] active:scale-95 transition-all border-2 border-[#6C7AE0]/20 group"
+            >
+              <svg className="w-10 h-10 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
+            </button>
+          </div>
+          <p className="text-white/40 text-xs mt-6 uppercase tracking-widest font-bold">Drag Card or Click</p>
+        </div>
+      )}
+
+      {gameOver && (
+        <div className="animate-fade-in z-20 w-full flex flex-col items-center text-center">
+          <h2 className="display-font text-6xl text-red-500 mb-2 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]">Brain Detected</h2>
+          <p className="text-xl mb-6 text-white/80">{gameOverReason === 'timeout' ? 'You hesitated too long. Hesitation is a thought. Thoughts are not allowed.' : 'Wrong sort. B.O.B. accidentally ate a thought and got a headache. In his arm.'}</p>
+          <div className="text-4xl font-mono text-white font-bold mb-6 border-y border-white/20 py-4 w-full">
+            Sorted: <span className="text-[#9AA9FF]">{score}</span>
+          </div>
+
+          {!scoreSubmitted ? (
+            <form onSubmit={submitScore} className="flex flex-col gap-4 w-full max-w-sm mx-auto mb-8">
+              <input
+                type="text"
+                value={playerName}
+                onChange={e => setPlayerName(e.target.value)}
+                placeholder="Enter Name"
+                maxLength={20}
+                required
+                className="bg-white/10 border border-white/30 text-white px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#9AA9FF] font-bold text-center tracking-widest"
+              />
+              <button
+                type="submit"
+                disabled={isSubmittingScore || !playerName.trim() || !gameSessionId} // disable if no token
+                className="w-full bg-[#6C7AE0] text-white font-black uppercase tracking-widest py-4 rounded-xl hover:bg-[#9AA9FF] hover:text-black disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(108,122,224,0.3)]"
+              >
+                {isSubmittingScore ? 'Gooifying...' : (gameSessionId ? 'Store in the Goo' : 'Replay to Submit')}
+              </button>
+              {!gameSessionId && <p className="text-red-400 text-xs font-bold uppercase">Game session invalidated. Refresh to compete.</p>}
+            </form>
+          ) : (
+            <p className="text-[#9AA9FF] font-black tracking-widest uppercase bg-white/10 py-3 px-6 rounded-lg border border-[#6C7AE0]/50">Stored in the Goo</p>
+          )}
+
+          <div className="flex gap-4 mt-8">
+            <button
+              onClick={() => { setGameOver(false); setIsPlaying(false); setShowLeaderboard(true); fetchLeaderboard(); }}
+              className="px-6 py-3 border border-white/20 text-white/70 hover:text-white hover:bg-white/10 transition-colors uppercase tracking-widest text-xs font-bold rounded-lg"
+            >
+              Leaderboard
+            </button>
+            <button
+              onClick={startGame}
+              className="px-6 py-3 bg-red-500/20 border border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest text-xs rounded-lg font-bold"
+            >
+              Empty Head & Replay
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

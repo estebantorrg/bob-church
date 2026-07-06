@@ -1,0 +1,17 @@
+{
+  "name": "The Church of B.O.B.",
+  "short_name": "B.O.B.",
+  "description": "Brainless. Blissful. Indestructible. The gospel of blankness and the dumbfoundedness of life.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050510",
+  "theme_color": "#050510",
+  "icons": [
+    {
+      "src": "/bob/BOB_smiling.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
