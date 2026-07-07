@@ -17,7 +17,7 @@ const Gateway: React.FC = () => {
       <div className="gateway-split flex flex-col md:flex-row w-full min-h-screen">
         {/* ─── YEFRIS (external — his own site) ─── */}
         <a
-          href="https://yefris.pages.dev/"
+          href="https://yefris.pages.dev/cult"
           className="gateway-panel group flex-1 relative flex flex-col items-center justify-center p-8 min-h-[50vh] md:min-h-screen overflow-hidden border-b md:border-b-0 md:border-r border-white/10"
           style={{
             backgroundImage:
