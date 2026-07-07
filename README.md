@@ -7,7 +7,7 @@ A single-page React app (Vite + Tailwind) with Cloudflare Pages Functions for th
 ## Features
 
 - **The Church** (`/`) — origin, gospel of blankness, powers, holy relics gallery, wobbled scriptures
-- **Ask the Blob** (`/oracle`, also embedded on the home page) — Gemini-powered oracle with streaming answers, Google Search grounding, chat history (localStorage), share-as-image cards
+- **Ask the Blob** (embedded on the home page at `#bob-oracle`) — Gemini-powered oracle with streaming answers, Google Search grounding, chat history (localStorage), share-as-image cards
 - **The Goo Trials** (`/games`) — five minigames with global leaderboards and server-side anti-cheat sessions:
   - Carrot Defense (`/games/goo-defense`) — ranked
   - The Dumbfounded Stare (`/games/the-stare`)

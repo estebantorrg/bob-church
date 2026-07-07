@@ -219,9 +219,6 @@ const BobPage: React.FC = () => {
               </p>
             </div>
             <AskBob />
-            <Link to="/oracle" className="mt-8 text-[#9AA9FF]/70 hover:text-[#9AA9FF] text-xs uppercase tracking-[0.3em] transition-colors">
-              Open the Blob full-screen →
-            </Link>
           </section>
 
           <footer className="bg-transparent text-[#9AA9FF]/50 text-center p-8 mt-12 pb-24 relative z-10 border-t border-[#6C7AE0]/10">

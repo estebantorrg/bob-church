@@ -45,7 +45,7 @@ graph TD
 
 The client side is a Single Page Application (SPA) built using **React 19**, **TypeScript**, and **Vite**.
 
-- **Routing Model (`react-router-dom`):** The app uses client-side routing. Cloudflare Pages is configured via a `_redirects` file (`/* /index.html 200`) so all URI requests execute `index.tsx` first, allowing React Router to seamlessly handle navigation between `/` (the Church home), `/oracle`, and `/games/*`.
+- **Routing Model (`react-router-dom`):** The app uses client-side routing. Cloudflare Pages is configured via a `_redirects` file (`/* /index.html 200`) so all URI requests execute `index.tsx` first, allowing React Router to seamlessly handle navigation between `/` (the Church home, which embeds the Oracle) and `/games/*`.
 - **Styling System (`tailwindcss` + `index.css`):** The UI strictly uses Tailwind CSS utility classes combined with custom CSS keyframe animations (blob wobble/float/morph, `fade-in-up`) for the gelatinous periwinkle theme and route transitions.
 - **State Management:** Local React state (`useState`, `useRef`) handles complex interactions like minigame logic and chat text buffering. Long-term state (chat thread history, keyed `bob_chat_sessions`) is aggressively cached inside the browser's `localStorage`.
 - **Fault Tolerance (`ErrorBoundary.tsx`):** A class-based React component wraps the entire component tree, catching unhandled JavaScript errors, providing a B.O.B.-themed fallback UI and preventing page-wide white-screens.

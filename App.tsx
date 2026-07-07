@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import BobPage from './pages/BobPage';
-import BobOraclePage from './pages/BobOraclePage';
 import GamesPage from './pages/GamesPage';
 
 // Scroll-to-top on route change
@@ -25,10 +24,6 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
   '/': {
     title: 'The Church of B.O.B. — Brainless. Blissful. Indestructible.',
     description: 'Benzoate Ostylezene Bicarbonate: an indestructible blue blob with no brain and no worries. The gospel of blankness and the dumbfoundedness of life. Ask the Blob anything.',
-  },
-  '/oracle': {
-    title: 'Ask the Blob — The B.O.B. Oracle',
-    description: 'Consult B.O.B. He has no brain, but he has an idea. Expect joy, confusion, and the occasional accidental wisdom.',
   },
   '/games': {
     title: 'Goo Trials — B.O.B. Minigames',
@@ -83,7 +78,6 @@ const App = () => {
       <RouteMeta />
       <Routes>
         <Route path="/" element={<BobPage />} />
-        <Route path="/oracle" element={<BobOraclePage />} />
         <Route path="/games" element={<GamesPage />} />
         <Route path="/games/:gameSlug" element={<GamesPage />} />
       </Routes>
