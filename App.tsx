@@ -3,6 +3,7 @@ import { Routes, Route, useLocation } from 'react-router-dom';
 import Gateway from './pages/Gateway';
 import BobPage from './pages/BobPage';
 import GamesPage from './pages/GamesPage';
+import NotFound from './pages/NotFound';
 
 // Scroll-to-top on route change
 const ScrollToTop = () => {
@@ -55,10 +56,13 @@ const RouteMeta = () => {
     const cleanPath = pathname !== '/' ? pathname.replace(/\/+$/, '') : '/';
     const canonicalUrl = SITE_ORIGIN + (cleanPath === '/' ? '/' : cleanPath);
 
-    // Title/description: exact match, else /games family, else site default.
+    // Title/description: exact match, else /games family, else 404.
     const meta = ROUTE_META[cleanPath]
       || (cleanPath.startsWith('/games') ? ROUTE_META['/games'] : undefined)
-      || ROUTE_META['/'];
+      || {
+        title: 'Lost in the Goo — 404 — The Church of B.O.B.',
+        description: 'B.O.B. forgot where this page went. This path leads nowhere.',
+      };
 
     document.title = meta.title;
     setMetaByName('description', meta.description);
@@ -86,6 +90,7 @@ const App = () => {
         <Route path="/church" element={<BobPage />} />
         <Route path="/games" element={<GamesPage />} />
         <Route path="/games/:gameSlug" element={<GamesPage />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </>
   );
