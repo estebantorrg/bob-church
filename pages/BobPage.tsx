@@ -79,7 +79,7 @@ const BobPage: React.FC = () => {
               </li>
             ))}
             <li className="pt-2 mt-2 border-t border-[#6C7AE0]/10">
-              <a href="https://yefris.pages.dev" className="block text-center bg-[#F1C40F]/10 hover:bg-[#F1C40F]/25 border border-[#F1C40F]/40 text-[#F1C40F] py-3 px-4 font-bold tracking-wider transition-all hover:scale-[1.02]">
+              <a href="https://yefris.pages.dev/cult" className="block text-center bg-[#F1C40F]/10 hover:bg-[#F1C40F]/25 border border-[#F1C40F]/40 text-[#F1C40F] py-3 px-4 font-bold tracking-wider transition-all hover:scale-[1.02]">
                 ⇄ The Cult of Yefris
               </a>
             </li>
