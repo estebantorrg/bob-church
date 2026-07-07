@@ -182,7 +182,7 @@ const GamesPage: React.FC = () => {
       <div className="fixed top-0 left-0 right-0 z-50 bg-[#08081a]/80 backdrop-blur-md border-b border-[#6C7AE0]/15">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link
-            to="/"
+            to="/church"
             className="flex items-center gap-2 text-white/60 hover:text-[#9AA9FF] transition-colors text-sm uppercase tracking-widest"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

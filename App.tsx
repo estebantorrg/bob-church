@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
+import Gateway from './pages/Gateway';
 import BobPage from './pages/BobPage';
 import GamesPage from './pages/GamesPage';
 
@@ -22,6 +23,10 @@ const SITE_ORIGIN = 'https://churchofbob.pages.dev';
 
 const ROUTE_META: Record<string, { title: string; description: string }> = {
   '/': {
+    title: 'Choose Your Devotion — Yefris or B.O.B.',
+    description: 'Two paths to obliviousness. Choose your devotion: The Cult of Yefris or The Church of B.O.B.',
+  },
+  '/church': {
     title: 'The Church of B.O.B. — Brainless. Blissful. Indestructible.',
     description: 'Benzoate Ostylezene Bicarbonate: an indestructible blue blob with no brain and no worries. The gospel of blankness and the dumbfoundedness of life. Ask the Blob anything.',
   },
@@ -77,7 +82,8 @@ const App = () => {
       <ScrollToTop />
       <RouteMeta />
       <Routes>
-        <Route path="/" element={<BobPage />} />
+        <Route path="/" element={<Gateway />} />
+        <Route path="/church" element={<BobPage />} />
         <Route path="/games" element={<GamesPage />} />
         <Route path="/games/:gameSlug" element={<GamesPage />} />
       </Routes>
