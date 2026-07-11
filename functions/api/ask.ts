@@ -133,7 +133,7 @@ export const onRequestPost = async (context: any) => {
             const compactionPayload = [{ role: 'user', parts: [{ text: `Please summarize the following conversation:\n\n${transcript}` }] }];
 
             const compactResponse = await aiCompact.models.generateContent({
-              model: "gemini-2.5-flash-lite", // cheap model strictly for compacting
+              model: "gemma-4-26b-a4b-it", // 26b strictly for compacting
               contents: compactionPayload,
               config: {
                 systemInstruction: compactionInstruction,
@@ -168,7 +168,7 @@ export const onRequestPost = async (context: any) => {
           ];
 
           return await aiMain.models.generateContent({
-            model: "gemini-2.5-flash", // supports googleSearch grounding for the main convo
+            model: "gemma-4-31b-it", // 31b strictly for the advanced main convo
             contents: payloadContents,
             config: config
           });
